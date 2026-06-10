@@ -1,21 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   UtensilsCrossed,
-  Camera,
-  X,
+  Search,
   Trash2,
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  X,
+  Plus,
+  ChevronDown,
 } from "lucide-vue-next";
 import { useDB, type FoodRecord } from "@/composables/useDB";
 import { prettyDate, sumCalories, todayStr } from "@/utils/date";
-import {
-  hasVisionApiKey,
-  recognizeFoodImage,
-  type RecognizedFood,
-} from "@/utils/vision";
+import { searchFood, type FoodItem } from "@/utils/foodDB";
 
 const db = useDB();
 
@@ -23,14 +21,24 @@ const selectedDate = ref(todayStr());
 const foods = ref<FoodRecord[]>([]);
 const nameInput = ref("");
 const caloriesInput = ref("");
-const fileInput = ref<HTMLInputElement | null>(null);
-const recognizing = ref(false);
-const recognizedItems = ref<RecognizedFood[]>([]);
-const previewUrl = ref<string | null>(null);
-const apiKeyMissing = ref(false);
+const searchQuery = ref("");
+const searchResults = ref<FoodItem[]>([]);
+const showSearchPanel = ref(false);
 const toast = ref<{ type: "ok" | "err"; msg: string } | null>(null);
 
 const total = computed(() => sumCalories(foods.value));
+
+// 智能搜索：监听搜索词变化
+watch(searchQuery, (q) => {
+  const trimmed = q.trim();
+  if (!trimmed) {
+    searchResults.value = [];
+    showSearchPanel.value = false;
+    return;
+  }
+  searchResults.value = searchFood(trimmed);
+  showSearchPanel.value = true;
+});
 
 function shiftDate(days: number) {
   const [y, m, d] = selectedDate.value.split("-").map(Number);
@@ -67,74 +75,31 @@ async function remove(id: string) {
   load();
 }
 
-function triggerPhoto() {
-  if (!hasVisionApiKey()) {
-    apiKeyMissing.value = true;
-    showToast("err", "需要配置 VITE_GEMINI_API_KEY 才能使用拍照识别");
-    return;
-  }
-  fileInput.value?.click();
-}
-
-function onFileChange(e: Event) {
-  const t = e.target as HTMLInputElement;
-  const file = t.files?.[0];
-  if (!file) return;
-  previewUrl.value = URL.createObjectURL(file);
-  recognizedItems.value = [];
-  runRecognize(file);
-  t.value = "";
-}
-
-async function runRecognize(file: File) {
-  recognizing.value = true;
-  try {
-    const items = await recognizeFoodImage(file);
-    if (items.length === 0) {
-      showToast("err", "未能识别到食物，请尝试更清晰的照片");
-    } else {
-      recognizedItems.value = items;
-      showToast("ok", `识别到 ${items.length} 种食物，请确认后保存`);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    showToast("err", msg);
-  } finally {
-    recognizing.value = false;
-  }
-}
-
-function closeRecognize() {
-  recognizedItems.value = [];
-  if (previewUrl.value) {
-    URL.revokeObjectURL(previewUrl.value);
-    previewUrl.value = null;
-  }
-}
-
-async function addRecognized(it: RecognizedFood) {
+// 从搜索结果中选择一个食物，直接添加
+async function pickFoodFromSearch(item: FoodItem) {
   await db.addFood({
     date: selectedDate.value,
-    name: it.name,
-    calories: it.calories,
+    name: item.name,
+    calories: item.calories,
   });
-  recognizedItems.value = recognizedItems.value.filter((x) => x !== it);
-  showToast("ok", `已添加：${it.name}`);
+  searchQuery.value = "";
+  searchResults.value = [];
+  showSearchPanel.value = false;
+  showToast("ok", `已添加：${item.name} (${item.calories} kcal)`);
   load();
-  if (recognizedItems.value.length === 0) closeRecognize();
 }
 
-async function addAllRecognized() {
-  for (const it of [...recognizedItems.value]) {
-    await db.addFood({
-      date: selectedDate.value,
-      name: it.name,
-      calories: it.calories,
-    });
-  }
-  closeRecognize();
-  showToast("ok", "已批量添加");
-  load();
+// 把搜索结果填充到手动输入区（方便修改）
+function fillFromSearch(item: FoodItem) {
+  nameInput.value = item.name;
+  caloriesInput.value = String(item.calories);
+  searchQuery.value = "";
+  searchResults.value = [];
+  showSearchPanel.value = false;
+}
+
+function closeSearchPanel() {
+  showSearchPanel.value = false;
 }
 
 function showToast(type: "ok" | "err", msg: string) {
@@ -202,36 +167,83 @@ onMounted(load);
       </div>
     </div>
 
-    <!-- Photo recognition -->
+    <!-- Smart Food Search -->
     <div class="card animate-fadeUp">
       <div class="flex items-center justify-between">
         <div>
-          <div class="text-sm font-bold text-slate-700">拍照识别</div>
+          <div class="text-sm font-bold text-slate-700">智能搜食物</div>
           <div class="text-xs text-slate-500">
-            拍一张食物照片，AI 帮你估算热量
+            输入食物名，从内置食物库快速添加热量
           </div>
         </div>
         <Sparkles class="h-4 w-4 text-amber-500" />
       </div>
-      <button class="btn-primary mt-4 w-full" @click="triggerPhoto">
-        <Camera class="h-4 w-4" />
-        <span>选择 / 拍摄食物照片</span>
-      </button>
-      <input
-        ref="fileInput"
-        type="file"
-        accept="image/*"
-        capture="environment"
-        class="hidden"
-        @change="onFileChange"
-      />
-      <p v-if="apiKeyMissing" class="mt-2 text-xs text-amber-600">
-        提示：在项目根目录创建 .env 文件，添加
-        <code class="rounded bg-amber-50 px-1 py-0.5">
-          VITE_GEMINI_API_KEY=yourkey
-        </code>
-        后重启开发服务器即可使用拍照识别功能。
-      </p>
+      <div class="relative mt-4">
+        <div class="flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 focus-within:ring-2 focus-within:ring-amber-400 transition">
+          <Search class="h-4 w-4 text-slate-400" />
+          <input
+            v-model="searchQuery"
+            class="flex-1 bg-transparent outline-none text-sm text-slate-800 placeholder:text-slate-400"
+            placeholder="搜索食物，例如：鸡蛋、米饭、牛肉面..."
+            @focus="showSearchPanel = true"
+          />
+          <button
+            v-if="searchQuery"
+            class="text-slate-400 hover:text-slate-600"
+            @click="searchQuery = ''; showSearchPanel = false"
+          >
+            <X class="h-4 w-4" />
+          </button>
+        </div>
+
+        <!-- Search Results Dropdown -->
+        <Transition name="dropdown">
+          <div
+            v-if="showSearchPanel && searchQuery"
+            class="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-card"
+          >
+            <div
+              v-if="searchResults.length === 0"
+              class="p-4 text-center text-sm text-slate-500"
+            >
+              没有找到「{{ searchQuery }}」，试试用其他关键词，或直接手动添加 👇
+            </div>
+            <ul v-else class="max-h-80 overflow-y-auto">
+              <li
+                v-for="(item, idx) in searchResults"
+                :key="idx"
+                class="border-b border-slate-50 last:border-b-0"
+              >
+                <div class="flex items-center justify-between gap-3 px-4 py-3 hover:bg-amber-50/60 transition">
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm font-semibold text-slate-700">{{ item.name }}</div>
+                    <div class="text-xs text-slate-500">{{ item.unit }}</div>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <div class="text-sm font-bold text-amber-600">{{ item.calories }} kcal</div>
+                    <div class="flex gap-2">
+                      <button
+                        class="btn-ghost !px-2 !py-1 text-xs"
+                        @click="fillFromSearch(item)"
+                        title="填入手动区修改"
+                      >
+                        修改
+                      </button>
+                      <button
+                        class="btn-primary !py-1 !px-3 text-xs"
+                        @click="pickFoodFromSearch(item)"
+                      >
+                        <Plus class="h-3 w-3" />
+                        <span>添加</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </Transition>
+      </div>
     </div>
 
     <!-- Manual input -->
@@ -301,66 +313,6 @@ onMounted(load);
       </ul>
     </div>
 
-    <!-- Recognition modal -->
-    <Transition name="fade">
-      <div
-        v-if="previewUrl || recognizing || recognizedItems.length > 0"
-        class="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-        @click.self="closeRecognize"
-      >
-        <div class="w-full max-w-md animate-pop overflow-hidden rounded-3xl bg-white shadow-soft">
-          <div class="flex items-center justify-between px-5 pt-5">
-            <div class="text-base font-bold text-slate-800">识别结果</div>
-            <button
-              class="rounded-xl p-2 text-slate-400 hover:bg-slate-100"
-              @click="closeRecognize"
-            >
-              <X class="h-4 w-4" />
-            </button>
-          </div>
-          <div class="px-5 pt-4 pb-5">
-            <img
-              v-if="previewUrl"
-              :src="previewUrl"
-              class="h-48 w-full rounded-2xl object-cover"
-              alt="food"
-            />
-            <div
-              v-if="recognizing"
-              class="mt-4 rounded-2xl bg-amber-50 p-4 text-sm text-amber-700"
-            >
-              ✨ 正在识别中，请稍候...
-            </div>
-            <div v-else-if="recognizedItems.length > 0" class="mt-4 space-y-2">
-              <div
-                v-for="(it, idx) in recognizedItems"
-                :key="idx"
-                class="flex items-center justify-between rounded-2xl bg-amber-50 px-4 py-3"
-              >
-                <div>
-                  <div class="text-sm font-bold text-slate-700">
-                    {{ it.name }}
-                  </div>
-                  <div class="text-xs text-slate-500">
-                    估算 {{ it.calories }} kcal
-                  </div>
-                </div>
-                <button class="btn-primary !py-2 !px-3 text-xs" @click="addRecognized(it)">
-                  添加
-                </button>
-              </div>
-              <button
-                class="btn-primary w-full"
-                @click="addAllRecognized"
-              >
-                全部添加 ({{ recognizedItems.length }})
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
     <!-- Toast -->
     <Transition name="fade">
       <div
@@ -386,5 +338,14 @@ onMounted(load);
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.18s ease;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 </style>
