@@ -25,22 +25,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "npm"
+
+      - name: Debug before install
+        run: |
+          pwd
+          ls -la
+          echo "HOME=$HOME"
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Check vite installation
         run: |
-          which node
-          node -v
-          npm -v
-          ls -la node_modules/.bin/ | grep -E "(vite|vue)" || echo "vite or vue not in bin"
+          npm install --no-audit --no-fund 2>&1 || true
+          echo "npm install exit code: $?"
 
-      - name: Build with npm script
-        run: npm run build
+      - name: Debug after install
+        run: |
+          pwd
+          ls -la node_modules/ 2>/dev/null || echo "node_modules not found"
+          ls -la node_modules/.bin/ 2>/dev/null || echo ".bin not found"
+          cat package.json
+
+      - name: Build with full path
+        run: |
+          ./node_modules/.bin/vite build
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
-          PATH: ${{ github.workspace }}/node_modules/.bin:$PATH
 
       - name: Show dist
         run: ls -la dist/
