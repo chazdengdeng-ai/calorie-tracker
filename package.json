@@ -9,10 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
     "lucide-vue-next": "^0.511.0",
     "tailwind-merge": "^3.3.0",
     "vue": "^3.4.15",
+    "vue-chartjs": "^5.3.3",
     "vue-router": "^4.2.5"
   },
   "devDependencies": {

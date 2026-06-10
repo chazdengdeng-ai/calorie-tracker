@@ -7,13 +7,43 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
+  TrendingDown,
+  TrendingUp,
+  Activity,
 } from "lucide-vue-next";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  type ChartOptions,
+} from "chart.js";
+import { Line, Bar } from "vue-chartjs";
 import {
   useDB,
   type FoodRecord,
   type ExerciseRecord,
 } from "@/composables/useDB";
 import { prettyDate, sumCalories, todayStr } from "@/utils/date";
+
+// 注册 Chart.js 组件
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+);
 
 const db = useDB();
 
@@ -30,6 +60,26 @@ interface DaySummary {
 const summaries = ref<DaySummary[]>([]);
 
 const hasData = computed(() => summaries.value.length > 0);
+
+// 按日期升序的统计（给图表用）
+const chartData = computed(() => {
+  const sorted = [...summaries.value].sort((a, b) =>
+    a.date < b.date ? -1 : 1,
+  );
+  // 取最近 14 天，让图表更清晰
+  const recent = sorted.slice(-14);
+  return {
+    labels: recent.map((s) => {
+      const [, m, d] = s.date.split("-");
+      return `${Number(m)}/${Number(d)}`;
+    }),
+    intake: recent.map((s) => s.intake),
+    burn: recent.map((s) => s.burn),
+    diff: recent.map((s) => s.diff),
+    fullDates: recent.map((s) => s.date),
+  };
+});
+
 const averageIntake = computed(() => {
   if (summaries.value.length === 0) return 0;
   const total = summaries.value.reduce((a, s) => a + s.intake, 0);
@@ -40,6 +90,147 @@ const averageBurn = computed(() => {
   const total = summaries.value.reduce((a, s) => a + s.burn, 0);
   return Math.round(total / summaries.value.length);
 });
+const averageDiff = computed(() => averageIntake.value - averageBurn.value);
+const totalDays = computed(() => summaries.value.length);
+
+// 最高/最低摄入日
+const maxIntakeDay = computed(() => {
+  if (summaries.value.length === 0) return null;
+  return summaries.value.reduce((a, b) => (a.intake > b.intake ? a : b));
+});
+const minDiffDay = computed(() => {
+  // 热量赤字最大的一天（diff 最低）
+  if (summaries.value.length === 0) return null;
+  return summaries.value.reduce((a, b) => (a.diff < b.diff ? a : b));
+});
+
+// Chart 1：摄入 vs 消耗 折线图
+const lineChartData = computed(() => ({
+  labels: chartData.value.labels,
+  datasets: [
+    {
+      label: "摄入 (kcal)",
+      data: chartData.value.intake,
+      borderColor: "#f59e0b",
+      backgroundColor: "rgba(245, 158, 11, 0.1)",
+      fill: true,
+      tension: 0.35,
+      pointRadius: 3,
+      pointHoverRadius: 6,
+      pointBackgroundColor: "#f59e0b",
+    },
+    {
+      label: "消耗 (kcal)",
+      data: chartData.value.burn,
+      borderColor: "#0ea5e9",
+      backgroundColor: "rgba(14, 165, 233, 0.1)",
+      fill: true,
+      tension: 0.35,
+      pointRadius: 3,
+      pointHoverRadius: 6,
+      pointBackgroundColor: "#0ea5e9",
+    },
+  ],
+}));
+
+const lineChartOptions: ChartOptions<"line"> = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    mode: "index",
+    intersect: false,
+  },
+  plugins: {
+    legend: {
+      position: "top",
+      labels: {
+        boxWidth: 12,
+        padding: 16,
+        font: { size: 12 },
+        usePointStyle: true,
+      },
+    },
+    tooltip: {
+      backgroundColor: "#1e293b",
+      padding: 12,
+      cornerRadius: 8,
+      titleFont: { size: 12, weight: "bold" },
+      bodyFont: { size: 12 },
+      callbacks: {
+        title: (items) => {
+          const idx = items[0].dataIndex;
+          return chartData.value.fullDates[idx] || "";
+        },
+        label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y} kcal`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: { font: { size: 11 }, color: "#64748b" },
+    },
+    y: {
+      beginAtZero: true,
+      grid: { color: "rgba(100, 116, 139, 0.08)" },
+      ticks: { font: { size: 11 }, color: "#64748b" },
+    },
+  },
+};
+
+// Chart 2：每日差值 柱状图
+const barChartData = computed(() => ({
+  labels: chartData.value.labels,
+  datasets: [
+    {
+      label: "热量差 (kcal)",
+      data: chartData.value.diff,
+      backgroundColor: chartData.value.diff.map((d) =>
+        d >= 0 ? "rgba(245, 158, 11, 0.7)" : "rgba(16, 185, 129, 0.7)",
+      ),
+      borderColor: chartData.value.diff.map((d) =>
+        d >= 0 ? "#f59e0b" : "#10b981",
+      ),
+      borderWidth: 1,
+      borderRadius: 6,
+    },
+  ],
+}));
+
+const barChartOptions: ChartOptions<"bar"> = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      backgroundColor: "#1e293b",
+      padding: 12,
+      cornerRadius: 8,
+      titleFont: { size: 12, weight: "bold" },
+      bodyFont: { size: 12 },
+      callbacks: {
+        title: (items) => {
+          const idx = items[0].dataIndex;
+          return chartData.value.fullDates[idx] || "";
+        },
+        label: (ctx) => {
+          const v = ctx.parsed.y;
+          return ` 差值: ${v >= 0 ? "+" : ""}${v} kcal (${v >= 0 ? "盈余" : "赤字"})`;
+        },
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: { font: { size: 11 }, color: "#64748b" },
+    },
+    y: {
+      grid: { color: "rgba(100, 116, 139, 0.08)" },
+      ticks: { font: { size: 11 }, color: "#64748b" },
+    },
+  },
+};
 
 async function load() {
   const base = await db.getAllDatesSummary();
@@ -94,10 +285,11 @@ onMounted(load);
 
 <template>
   <div class="space-y-5">
+    <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-bold tracking-tight text-slate-800">
-          历史记录
+          历史 & 统计
         </h1>
         <p class="text-sm text-slate-500">回顾每一天的热量平衡</p>
       </div>
@@ -117,7 +309,7 @@ onMounted(load);
           记录天数
         </div>
         <div class="mt-1 text-2xl font-bold">
-          {{ summaries.length }}
+          {{ totalDays }}
           <span class="text-sm font-normal opacity-80">天</span>
         </div>
       </div>
@@ -129,8 +321,97 @@ onMounted(load);
           {{ averageIntake }} / {{ averageBurn }} kcal
         </div>
       </div>
+      <div>
+        <div class="text-xs uppercase tracking-wider opacity-80">
+          日均热量差
+        </div>
+        <div class="mt-1 text-2xl font-bold">
+          {{ averageDiff >= 0 ? "+" : "" }}{{ averageDiff }}
+          <span class="text-sm font-normal opacity-80">kcal</span>
+        </div>
+      </div>
+      <div>
+        <div class="text-xs uppercase tracking-wider opacity-80">
+          趋势
+        </div>
+        <div class="mt-1 flex items-center gap-1 text-base font-semibold">
+          <component
+            :is="averageDiff >= 0 ? TrendingUp : TrendingDown"
+            class="h-5 w-5"
+          />
+          <span>{{ averageDiff >= 0 ? "盈余" : "赤字" }}</span>
+        </div>
+      </div>
     </div>
 
+    <!-- Charts section -->
+    <template v-if="hasData">
+      <!-- Intake vs Burn Line Chart -->
+      <div class="card animate-fadeUp">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm font-bold text-slate-700">
+              每日摄入 vs 消耗
+            </div>
+            <div class="text-xs text-slate-500">
+              最近 {{ chartData.labels.length }} 天
+            </div>
+          </div>
+          <Activity class="h-4 w-4 text-violet-500" />
+        </div>
+        <div class="mt-4 h-60">
+          <Line :data="lineChartData" :options="lineChartOptions" />
+        </div>
+      </div>
+
+      <!-- Diff Bar Chart -->
+      <div class="card animate-fadeUp">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm font-bold text-slate-700">每日热量差</div>
+            <div class="text-xs text-slate-500">
+              <span class="text-amber-600">橙色</span> = 盈余，
+              <span class="text-emerald-600">绿色</span> = 赤字
+            </div>
+          </div>
+          <TrendingUp class="h-4 w-4 text-amber-500" />
+        </div>
+        <div class="mt-4 h-60">
+          <Bar :data="barChartData" :options="barChartOptions" />
+        </div>
+      </div>
+
+      <!-- Highlights -->
+      <div class="grid animate-fadeUp grid-cols-2 gap-3">
+        <div class="card">
+          <div class="text-xs text-slate-500">最高摄入日</div>
+          <div v-if="maxIntakeDay" class="mt-1">
+            <div class="text-base font-bold text-amber-600">
+              {{ maxIntakeDay.intake }} kcal
+            </div>
+            <div class="text-xs text-slate-500">
+              {{ prettyDate(maxIntakeDay.date) }}
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="text-xs text-slate-500">最大热量赤字日</div>
+          <div v-if="minDiffDay && minDiffDay.diff < 0" class="mt-1">
+            <div class="text-base font-bold text-emerald-600">
+              {{ minDiffDay.diff }} kcal
+            </div>
+            <div class="text-xs text-slate-500">
+              {{ prettyDate(minDiffDay.date) }}
+            </div>
+          </div>
+          <div v-else class="mt-1 text-sm text-slate-400">
+            暂未出现赤字日
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Empty state -->
     <div v-if="!hasData" class="card animate-fadeUp text-center">
       <div class="py-10 text-sm text-slate-500">
         还没有任何记录 🌱
@@ -139,7 +420,11 @@ onMounted(load);
       </div>
     </div>
 
-    <div v-else class="space-y-3">
+    <!-- Day-by-day list -->
+    <div v-if="hasData" class="space-y-3">
+      <div class="text-xs font-bold uppercase tracking-wider text-slate-500">
+        每日明细
+      </div>
       <div
         v-for="(s, idx) in summaries"
         :key="s.date"
