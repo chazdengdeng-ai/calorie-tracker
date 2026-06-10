@@ -9,9 +9,13 @@ import {
   Sparkles,
   X,
   Plus,
-  ChevronDown,
 } from "lucide-vue-next";
-import { useDB, type FoodRecord } from "@/composables/useDB";
+import {
+  useDB,
+  type FoodRecord,
+  type MealType,
+  MEAL_LABELS,
+} from "@/composables/useDB";
 import { prettyDate, sumCalories, todayStr } from "@/utils/date";
 import { searchFood, type FoodItem } from "@/utils/foodDB";
 
@@ -26,7 +30,30 @@ const searchResults = ref<FoodItem[]>([]);
 const showSearchPanel = ref(false);
 const toast = ref<{ type: "ok" | "err"; msg: string } | null>(null);
 
+// 餐次选择
+const currentMeal = ref<MealType>("lunch");
+const mealOptions: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
+
 const total = computed(() => sumCalories(foods.value));
+
+// 按餐次分组
+const foodsByMeal = computed(() => {
+  const groups: Record<MealType, FoodRecord[]> = {
+    breakfast: [],
+    lunch: [],
+    dinner: [],
+    snack: [],
+  };
+  for (const f of foods.value) {
+    const meal = f.meal || "snack";
+    if (groups[meal]) {
+      groups[meal].push(f);
+    } else {
+      groups.snack.push(f);
+    }
+  }
+  return groups;
+});
 
 // 智能搜索：监听搜索词变化
 watch(searchQuery, (q) => {
@@ -63,7 +90,12 @@ async function submit() {
     showToast("err", "请输入食物名称和热量");
     return;
   }
-  await db.addFood({ date: selectedDate.value, name, calories: cal });
+  await db.addFood({
+    date: selectedDate.value,
+    name,
+    calories: cal,
+    meal: currentMeal.value,
+  });
   nameInput.value = "";
   caloriesInput.value = "";
   showToast("ok", "已添加 🍎");
@@ -81,6 +113,7 @@ async function pickFoodFromSearch(item: FoodItem) {
     date: selectedDate.value,
     name: item.name,
     calories: item.calories,
+    meal: currentMeal.value,
   });
   searchQuery.value = "";
   searchResults.value = [];
@@ -167,11 +200,33 @@ onMounted(load);
       </div>
     </div>
 
+    <!-- Meal selector -->
+    <div class="card animate-fadeUp">
+      <div class="text-sm font-bold text-slate-700">记录餐次</div>
+      <div class="mt-3 grid grid-cols-4 gap-2">
+        <button
+          v-for="meal in mealOptions"
+          :key="meal"
+          class="rounded-2xl px-3 py-2.5 text-xs font-semibold transition border"
+          :class="
+            currentMeal === meal
+              ? 'bg-amber-500 text-white border-amber-500 shadow-soft'
+              : 'bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:border-amber-200'
+          "
+          @click="currentMeal = meal"
+        >
+          {{ MEAL_LABELS[meal] }}
+        </button>
+      </div>
+    </div>
+
     <!-- Smart Food Search -->
     <div class="card animate-fadeUp">
       <div class="flex items-center justify-between">
         <div>
-          <div class="text-sm font-bold text-slate-700">智能搜食物</div>
+          <div class="text-sm font-bold text-slate-700">
+            智能搜食物 · {{ MEAL_LABELS[currentMeal] }}
+          </div>
           <div class="text-xs text-slate-500">
             输入食物名，从内置食物库快速添加热量
           </div>
@@ -248,7 +303,9 @@ onMounted(load);
 
     <!-- Manual input -->
     <div class="card animate-fadeUp">
-      <div class="text-sm font-bold text-slate-700">手动添加</div>
+      <div class="text-sm font-bold text-slate-700">
+        手动添加 · {{ MEAL_LABELS[currentMeal] }}
+      </div>
       <div class="mt-3 grid gap-3">
         <input
           v-model="nameInput"
@@ -269,7 +326,7 @@ onMounted(load);
       </div>
     </div>
 
-    <!-- List -->
+    <!-- List grouped by meal -->
     <div class="card animate-fadeUp">
       <div class="text-sm font-bold text-slate-700">
         当日记录 · {{ foods.length }}
@@ -280,37 +337,53 @@ onMounted(load);
       >
         暂无记录，开始记录今天的第一餐吧 🍱
       </div>
-      <ul v-else class="mt-3 space-y-2">
-        <li
-          v-for="f in foods"
-          :key="f.id"
-          class="flex items-center justify-between rounded-2xl bg-amber-50/70 px-4 py-3"
+      <div v-else class="mt-3 space-y-4">
+        <div
+          v-for="meal in mealOptions"
+          :key="meal"
+          v-show="foodsByMeal[meal].length > 0"
         >
-          <div class="min-w-0">
-            <div class="truncate text-sm font-semibold text-slate-700">
-              {{ f.name }}
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-bold uppercase tracking-wider text-slate-500">
+              {{ MEAL_LABELS[meal] }}
             </div>
-            <div class="text-xs text-slate-500">
-              {{ new Date(f.timestamp).toLocaleTimeString("zh-CN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              }) }}
+            <div class="text-xs font-semibold text-amber-600">
+              +{{ sumCalories(foodsByMeal[meal]) }} kcal
             </div>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="text-base font-bold text-amber-600">
-              {{ f.calories }} kcal
-            </div>
-            <button
-              class="rounded-xl p-2 text-slate-400 hover:bg-white hover:text-rose-500 transition"
-              @click="remove(f.id)"
-              aria-label="删除"
+          <ul class="mt-2 space-y-2">
+            <li
+              v-for="f in foodsByMeal[meal]"
+              :key="f.id"
+              class="flex items-center justify-between rounded-2xl bg-amber-50/70 px-4 py-3"
             >
-              <Trash2 class="h-4 w-4" />
-            </button>
-          </div>
-        </li>
-      </ul>
+              <div class="min-w-0">
+                <div class="truncate text-sm font-semibold text-slate-700">
+                  {{ f.name }}
+                </div>
+                <div class="text-xs text-slate-500">
+                  {{ new Date(f.timestamp).toLocaleTimeString("zh-CN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }) }}
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="text-base font-bold text-amber-600">
+                  {{ f.calories }} kcal
+                </div>
+                <button
+                  class="rounded-xl p-2 text-slate-400 hover:bg-white hover:text-rose-500 transition"
+                  @click="remove(f.id)"
+                  aria-label="删除"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
 
     <!-- Toast -->

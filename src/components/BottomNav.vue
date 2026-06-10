@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Home, Utensils, Dumbbell, Calendar } from "lucide-vue-next";
+import { Home, Utensils, Dumbbell, Calendar, Scale } from "lucide-vue-next";
 
 const router = useRouter();
 const route = useRoute();
@@ -9,6 +9,7 @@ const route = useRoute();
 const items = [
   { to: "/", label: "主页", icon: Home },
   { to: "/food", label: "饮食", icon: Utensils },
+  { to: "/weight", label: "体重", icon: Scale },
   { to: "/exercise", label: "运动", icon: Dumbbell },
   { to: "/history", label: "历史", icon: Calendar },
 ];
