@@ -1,35 +1,35 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
-import Inspector from 'unplugin-vue-dev-locator/vite'
-import traeBadgePlugin from 'vite-plugin-trae-solo-badge'
 
-// 动态计算 base 路径：本地开发 = '/'，GitHub Pages 部署 = '/仓库名/'
+// 动态 base 路径：GitHub Pages 部署时自动适配仓库名
 const githubRepo = process.env.GITHUB_REPOSITORY
 const base = githubRepo ? `/${githubRepo.split('/')[1]}/` : '/'
+
+// 仅在开发环境加载调试插件，避免生产构建依赖问题
+const devPlugins = []
+if (!process.env.CI) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    devPlugins.push(require('unplugin-vue-dev-locator/vite').default())
+  } catch (e) {
+    // 忽略
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    devPlugins.push(require('vite-plugin-trae-solo-badge').default())
+  } catch (e) {
+    // 忽略
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
   base,
-  build: {
-    sourcemap: 'hidden',
-  },
-  plugins: [
-    vue(),
-    Inspector(),
-    traeBadgePlugin({
-      variant: 'dark',
-      position: 'bottom-right',
-      prodOnly: true,
-      clickable: true,
-      clickUrl: 'https://www.trae.ai/solo?showJoin=1',
-      autoTheme: true,
-      autoThemeTarget: '#app',
-    }),
-  ],
+  plugins: [vue(), ...devPlugins],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'), // ✅ 定义 @ = src
+      '@': path.resolve(__dirname, './src'),
     },
   },
 })
