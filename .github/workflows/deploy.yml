@@ -21,38 +21,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
-
-      - name: Debug before install
-        run: |
-          pwd
-          ls -la
-          echo "HOME=$HOME"
+          cache: 'npm'
 
       - name: Install dependencies
-        run: |
-          npm install --no-audit --no-fund 2>&1 || true
-          echo "npm install exit code: $?"
+        run: npm install --no-audit --no-fund
 
-      - name: Debug after install
-        run: |
-          pwd
-          ls -la node_modules/ 2>/dev/null || echo "node_modules not found"
-          ls -la node_modules/.bin/ 2>/dev/null || echo ".bin not found"
-          cat package.json
-
-      - name: Build with full path
-        run: |
-          ./node_modules/.bin/vite build
+      - name: Build application
+        run: npm run build
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
-
-      - name: Show dist
-        run: ls -la dist/
+          VITE_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
