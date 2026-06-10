@@ -25,26 +25,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
-
-      - name: Show environment
-        run: |
-          node -v
-          npm -v
-          ls -la
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund --legacy-peer-deps
+        run: |
+          npm ci || npm install --no-audit --no-fund
+
+      - name: Verify node_modules
+        run: |
+          ls node_modules/.bin/vite || echo "vite not found"
+          ls node_modules/.bin/ | head -20
 
       - name: Build
-        run: npm run build
+        run: |
+          npx vite build
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
-      - name: Verify dist
-        run: |
-          ls -la dist/
-          cat dist/index.html
+      - name: Show dist
+        run: ls -la dist/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
